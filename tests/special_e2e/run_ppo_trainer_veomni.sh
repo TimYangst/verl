@@ -105,8 +105,14 @@ if [ -n "$device_name" ] && [ "$device_name" == "cuda" ]; then
     
 elif [ -n "$device_name" ] && [ "$device_name" == "npu" ]; then
     CONTENTS=['npu','cpu']
+    # NPU kernel overrides: GPU defaults (fused_triton / liger_kernel) require
+    # CUDA/Triton + liger-kernel, neither available on Ascend. Switch to VeOmni's
+    # NPU backends (fused_npu group-gemm + chunked CE). veomni_ref.yaml inherits
+    # these from actor via oc.select, so setting actor is enough.
     python3 -m verl.trainer.main_ppo \
         "${common_params[@]}" \
+        actor_rollout_ref.actor.veomni.moe_implementation=fused_npu \
+        actor_rollout_ref.actor.veomni.cross_entropy_loss_implementation=npu \
         actor_rollout_ref.actor.profiler.tool_config.npu.discrete=$DISCRETE \
         actor_rollout_ref.actor.profiler.tool_config.npu.contents=$CONTENTS \
         actor_rollout_ref.ref.profiler.tool_config.npu.discrete=$DISCRETE \

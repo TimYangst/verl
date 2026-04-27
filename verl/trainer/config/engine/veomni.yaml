@@ -48,8 +48,18 @@ enable_reentrant: false
 # veomni_flash_attention_3_with_sp and native-sparse
 attn_implementation: flash_attention_2
 
-# eager or fused
-moe_implementation: fused
+# MoE experts forward kernel. GPU default = fused_triton (Triton group-gemm,
+# SM70+); SM90+ may use fused_quack; on Ascend NPU override to fused_npu.
+# `fused` (the legacy name) was removed in VeOmni's kernel-selection refactor —
+# `apply_veomni_fused_moe_patch` raises ValueError if it sees that string now.
+moe_implementation: fused_triton
+
+# Cross-entropy loss kernel, installed via VeOmni's apply_ops_config()
+# singleton path. GPU default = liger_kernel (fused linear+CE, requires
+# liger-kernel); on NPU override to `npu` (chunked loss); `eager` materializes
+# the full [bsz × seq × vocab] logits tensor and OOMs at loss.backward() for
+# large-vocab MoE models.
+cross_entropy_loss_implementation: liger_kernel
 
 force_use_huggingface: false
 

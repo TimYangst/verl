@@ -42,7 +42,8 @@ actor_rollout_ref:
       enable_fsdp_offload: false
       enable_reentrant: false
       attn_implementation: flash_attention_2
-      moe_implementation: fused
+      moe_implementation: fused_triton
+      cross_entropy_loss_implementation: liger_kernel
       force_use_huggingface: false
       activation_gpu_limit: 0.0
     _target_: verl.workers.config.VeOmniActorConfig
@@ -201,7 +202,8 @@ actor_rollout_ref:
       enable_fsdp_offload: false
       enable_reentrant: false
       attn_implementation: ${oc.select:actor_rollout_ref.actor.veomni.attn_implementation,flash_attention_2}
-      moe_implementation: ${oc.select:actor_rollout_ref.actor.veomni.moe_implementation,fused}
+      moe_implementation: ${oc.select:actor_rollout_ref.actor.veomni.moe_implementation,fused_triton}
+      cross_entropy_loss_implementation: ${oc.select:actor_rollout_ref.actor.veomni.cross_entropy_loss_implementation,liger_kernel}
       force_use_huggingface: false
       activation_gpu_limit: 0.0
     _target_: verl.workers.config.VeOmniActorConfig
@@ -472,7 +474,8 @@ critic:
     enable_fsdp_offload: false
     enable_reentrant: false
     attn_implementation: flash_attention_2
-    moe_implementation: fused
+    moe_implementation: fused_triton
+    cross_entropy_loss_implementation: liger_kernel
     force_use_huggingface: false
     activation_gpu_limit: 0.0
   _target_: verl.workers.config.VeOmniCriticConfig

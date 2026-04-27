@@ -21,10 +21,12 @@ import torch
 import torch.distributed as dist
 from tensordict import TensorDict
 from torch.distributed.tensor import DTensor
+from veomni.arguments.arguments_types import OpsImplementationConfig
 from veomni.distributed import parallel_state
 from veomni.distributed.offloading import build_activation_offloading_context
 from veomni.distributed.torch_parallelize import build_parallelize_model
 from veomni.models.auto import build_foundation_model
+from veomni.ops import apply_ops_config
 from veomni.optim import build_lr_scheduler, build_optimizer
 from veomni.utils.seqlen_pos_transform_utils import prepare_fa_kwargs_from_position_ids
 
@@ -194,6 +196,21 @@ class VeOmniEngine(FSDPEngine):
         return lr_scheduler
 
     def _build_model_optimizer(self):
+        # Install VeOmni's ops config singleton before model construction.
+        # `cross_entropy_loss_implementation` only takes effect through
+        # `apply_ops_config` → `install_loss_mapping`; it is NOT a kwarg of
+        # `build_foundation_model`. Skipping this leaves CE = "eager", which
+        # materializes the full [bsz × seq × vocab] logits tensor and OOMs at
+        # loss.backward() for large-vocab MoE models. See VeOmni's
+        # `docs/design/kernel_selection.md` §2.
+        apply_ops_config(
+            OpsImplementationConfig(
+                attn_implementation=self.engine_config.attn_implementation,
+                moe_implementation=self.engine_config.moe_implementation,
+                cross_entropy_loss_implementation=self.engine_config.cross_entropy_loss_implementation,
+            )
+        )
+
         # Load base model with specified configuration and dtype
         module = build_foundation_model(
             config_path=self.model_config.local_hf_config_path,
