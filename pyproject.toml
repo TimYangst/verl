@@ -24,6 +24,169 @@ readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
 
 # -------------------------------
+# tool.uv - opt-in uv-managed environment for the VeOmni training stack.
+#
+# This section is consumed only by `uv` (https://docs.astral.sh/uv/); pip and
+# plain `setuptools` ignore it entirely. The `requires-python`, `dependencies`
+# and `optional-dependencies` fields above stay dynamic and continue to be
+# sourced from setup.py, so existing `pip install -e .` and
+# `pip install -e .[gpu]` workflows are unchanged.
+#
+# To use the curated VeOmni environment:
+#
+#   curl -LsSf https://astral.sh/uv/install.sh | sh
+#   uv sync --extra veomni --extra veomni-sglang   # canonical training combo
+#   # or:
+#   uv sync --extra veomni --extra veomni-vllm     # vllm rollout instead
+#
+# uv reads the new `veomni`, `veomni-vllm` and `veomni-sglang` extras from
+# setup.py's extras_require, then layers the pins below to materialize the
+# CUDA 12.9 / Torch 2.9.1 / VeOmni 0.1.9a2 stack used by modelchef
+# veomni-recipes nightly CI. Mirrors the equivalent block in
+# https://github.com/ByteDance-Seed/modelchef-style monorepos.
+# -------------------------------
+[tool.uv]
+# Lock to the same uv version the modelchef monorepo uses for reproducible
+# resolves. Update in lockstep with the modelchef pin.
+required-version = "==0.9.8"
+# Universal lockfile covering py3.11 / py3.12 on Linux x86_64. The prebuilt
+# flash-attn / flash-attn-3 wheels referenced in [tool.uv.sources] are
+# Linux-only (and so are the cu129 torch wheels), so we exclude other
+# platforms from the resolution graph.
+environments = [
+    "python_version == '3.11' and sys_platform == 'linux'",
+    "python_version == '3.12' and sys_platform == 'linux'",
+]
+no-build-isolation-package = [
+    "flash-attn",
+    "flash-attn-3",
+]
+override-dependencies = [
+    # cu129 wheels: without an extra marker, uv may fall back to a generic
+    # wheel from .../cu128_full that drops the nvidia-* dep chain
+    # (cf. astral-sh/uv#11153).
+    "torch==2.9.1+cu129; (extra == 'veomni')",
+    "torchaudio==2.9.1+cu129; (extra == 'veomni')",
+    "torchvision==0.24.1+cu129; (extra == 'veomni')",
+    # cuda-python: veomni[gpu] pins .1, sglang 0.5.9 pins plain 12.9. Both can
+    # coexist because veomni-vllm / veomni-sglang are declared as conflicting
+    # extras (resolved separately).
+    "cuda-python==12.9.1; (extra == 'veomni')",
+    "cuda-python==12.9; (extra == 'veomni-sglang')",
+    # torchcodec: veomni[gpu] pins 0.8.1; we bump to 0.9.1 (modelchef's pin).
+    "torchcodec==0.9.1; (extra == 'veomni')",
+    "torchcodec==0.8.0; (extra == 'veomni-sglang')",
+    # triton must match torch 2.9.
+    "triton==3.5.1; (extra == 'veomni')",
+    "flashinfer-python==0.6.3; (extra == 'veomni-sglang')",
+    "opencv-python-headless>=4.13.0; (extra == 'veomni-vllm')",
+    "opencv-python-headless==4.10.0.84; (extra == 'veomni-sglang')",
+    "llguidance>=1.3.0,<1.4.0; (extra == 'veomni-vllm')",
+    "llguidance>=0.7.11,<0.8.0; (extra == 'veomni-sglang')",
+    "outlines-core==0.2.11; (extra == 'veomni-vllm')",
+    # Force transformers per rollout extra. sglang's metadata pins 4.57.1; we
+    # raise to 5.3.0 to match the run_qwen3_5-35b-a3b_veomni.sh environment.
+    "transformers==4.57.3; (extra == 'veomni-vllm')",
+    "transformers==5.3.0; (extra == 'veomni-sglang')",
+    # NCCL 2.27.6 + cudnn 9.15.x avoids the torch 2.9 conv3d perf regression
+    # tracked in https://github.com/pytorch/pytorch/releases/tag/v2.9.1.
+    "nvidia-nccl-cu12==2.27.6",
+    "nvidia-cudnn-cu12==9.15.1.9",
+    # numpy<2 required by the veomni / liger / verl numerics path.
+    "numpy<2",
+    # flash-linear-attention requires datasets>=2.21 but veomni caps at 2.21.0.
+    "datasets==2.21.0",
+    # bytedray<->ray packaging conflict in modelchef; harmless here.
+    "packaging<25.0",
+    "diffusers==0.36.0",
+]
+
+# Conflicts. The veomni stack pins a curated cu129 / quack-kernels / torchcodec
+# matrix that is incompatible with the legacy `vllm`, `sglang` and `prime`
+# extras. uv's universal lockfile resolves every (extra-set ∩ python-version)
+# scenario, so we must explicitly forbid the impossible combinations.
+#
+# - veomni vs legacy `vllm` (vllm>=0.8.5,<=0.12.0): legacy vllm's torch line
+#   does not match veomni's torch 2.9.1+cu129.
+# - veomni vs legacy `sglang` (sglang==0.5.8): legacy sglang pins
+#   quack-kernels==0.2.4 while veomni 0.1.9a2 transitively requires 0.3.4.
+# - veomni-vllm vs veomni-sglang: different transformers / cuda-python /
+#   flashinfer / opencv pins.
+# - veomni-vllm vs legacy `vllm`, veomni-sglang vs legacy `sglang`: vllm and
+#   sglang version pins disagree (0.14.1 / 0.5.9 vs 0.8-0.12 / 0.5.8).
+# - `prime` (pyext==0.7) is excluded everywhere — pyext uses
+#   `inspect.getargspec` which was removed in py3.11+, so it cannot build in
+#   the lockfile's py3.11 / py3.12 universe. We also short-circuit pyext's
+#   build via [tool.uv.dependency-metadata] below.
+conflicts = [
+    [
+        { extra = "veomni" },
+        { extra = "vllm" },
+    ],
+    [
+        { extra = "veomni" },
+        { extra = "sglang" },
+    ],
+    [
+        { extra = "veomni-vllm" },
+        { extra = "veomni-sglang" },
+    ],
+    [
+        { extra = "veomni-vllm" },
+        { extra = "vllm" },
+    ],
+    [
+        { extra = "veomni-vllm" },
+        { extra = "sglang" },
+    ],
+    [
+        { extra = "veomni-sglang" },
+        { extra = "sglang" },
+    ],
+    [
+        { extra = "veomni-sglang" },
+        { extra = "vllm" },
+    ],
+]
+
+# Short-circuit pyext (pulled by `prime`) — pyext==0.7 fails to build under
+# py3.11+ (uses removed `inspect.getargspec`). uv only needs metadata at
+# resolve time; declaring zero deps lets the lock succeed without building.
+# `uv sync --extra prime` will still fail, which matches the upstream reality
+# that prime is not py3.11+ ready.
+dependency-metadata = [
+    { name = "pyext", version = "0.7", requires-dist = [] },
+]
+
+[tool.uv.sources]
+# Pin torch wheel URLs explicitly — see astral-sh/uv#11153 for context. The
+# `extra = "..."` source marker is unavailable here because verl's extras come
+# from setup.py dynamically (uv only honors it for static
+# [project.optional-dependencies]). Dropping the marker is fine: torch is only
+# introduced by the `veomni` extra (transitively via `veomni[gpu]`), so the
+# pin is effectively scoped to that extra anyway.
+torch = [
+    { url = "https://download.pytorch.org/whl/cu129/torch-2.9.1%2Bcu129-cp311-cp311-manylinux_2_28_x86_64.whl", marker = "python_version == '3.11'" },
+    { url = "https://download.pytorch.org/whl/cu129/torch-2.9.1%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "python_version == '3.12'" },
+]
+torchvision = { index = "pytorch" }
+torchaudio = { index = "pytorch" }
+# Prebuilt flash-attn wheels for torch 2.9 + cu129 (no PyPI wheel exists yet).
+flash-attn = [
+    { url = "https://github.com/Luosuu/flash-attention3-wheels/releases/download/v0.0.1/flash_attn-2.8.4-cp311-cp311-linux_x86_64.whl", marker = "python_version == '3.11'" },
+    { url = "https://github.com/Luosuu/flash-attention-prebuild-wheels/releases/download/fa2cu129/flash_attn-2.8.3+cu129torch2.9-cp312-cp312-linux_x86_64.whl", marker = "python_version == '3.12'" },
+]
+# flash-attn-3 (pulled transitively by veomni[gpu]==0.1.9a2). The PyPI release
+# 0.0.0 is yanked (empty placeholder); use the cu129 / torch 2.9 prebuilt
+# wheel. The wheel is cp39-abi3 so the same artifact works on cp311 and cp312.
+flash-attn-3 = { url = "https://github.com/Luosuu/flash-attention3-wheels/releases/download/v0.0.1/flash_attn_3-3.0.0+20260313.cu129torch291cxx11abitrue.3a0d6b-cp39-abi3-linux_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/"
+explicit = true
+
+# -------------------------------
 # tool.ruff - Linting configuration
 # -------------------------------
 [tool.ruff]

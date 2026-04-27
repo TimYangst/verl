@@ -120,6 +120,8 @@ ENV/
 
 # ckpt
 *.lock
+# uv lockfile is committed for reproducible installs.
+!uv.lock
 
 # data
 *.parquet

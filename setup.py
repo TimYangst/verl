@@ -60,6 +60,56 @@ TRL_REQUIRES = ["trl<=0.9.6"]
 MCORE_REQUIRES = ["mbridge"]
 TRANSFERQUEUE_REQUIRES = ["TransferQueue==0.1.6"]
 
+# ---- VeOmni training stack (opt-in, uv-friendly) -----------------------------
+# These three extras together reproduce the modelchef veomni-recipes nightly
+# environment for `actor_rollout_ref.actor.strategy=veomni` training, pinned to
+# torch 2.9.1+cu129 / B200-class GPUs. They are intentionally separate from the
+# existing GPU/VLLM/SGLANG extras so that `pip install verl[gpu]` /
+# `pip install verl[vllm]` / `pip install verl[sglang]` keep their pre-existing
+# behavior.
+#
+# Recommended invocation (with uv):
+#   uv sync --extra veomni --extra veomni-sglang     # default rollout
+#   uv sync --extra veomni --extra veomni-vllm       # vllm rollout
+# `veomni-vllm` and `veomni-sglang` are mutually exclusive (declared in
+# pyproject.toml [tool.uv].conflicts) because they pin different transformers,
+# cuda-python, torchcodec, flashinfer and llguidance versions.
+VEOMNI_REQUIRES = [
+    "veomni==0.1.9a2",
+    # NOTE: We intentionally inline the cu129 stack here rather than using
+    # `veomni[gpu]==0.1.9a2`. veomni[gpu] hard-pulls `flash-attn-3`, but the
+    # only PyPI release of flash-attn-3 (0.0.0) is yanked, and uv applies
+    # [tool.uv.sources] inconsistently for transitive deps. Listing the deps
+    # directly lets us pin via [tool.uv.sources] / override-dependencies.
+    "torch==2.9.1+cu129",
+    "torchvision==0.24.1+cu129",
+    "torchaudio==2.9.1+cu129",
+    "torchcodec==0.9.1",
+    "triton==3.5.1",
+    "liger-kernel",
+    "flash-attn",
+    # The training shell scripts (e.g. examples/grpo_trainer/run_qwen3_5-35b-a3b_veomni.sh)
+    # were validated against this exact flash-linear-attention release.
+    "flash-linear-attention==0.4.1",
+    "cuda-python==12.9.1",
+    "hf_transfer",
+]
+VEOMNI_VLLM_REQUIRES = [
+    "vllm==0.14.1",
+    # vllm 0.14.1 caps transformers at <5; veomni itself does not pin
+    # transformers, so we land on a 4.x line that satisfies vllm.
+    "transformers==4.57.3",
+]
+VEOMNI_SGLANG_REQUIRES = [
+    # Mirrors modelchef's `sglang-hf530` extra: sglang 0.5.9 + transformers
+    # 5.3.0 + flashinfer 0.6.3. sglang's own metadata pins transformers==4.57.1
+    # but the modelchef nightly stack force-overrides to 5.3.0; we replicate the
+    # override in pyproject.toml [tool.uv].override-dependencies.
+    "sglang==0.5.9",
+    "transformers==5.3.0",
+    "flashinfer-python==0.6.3",
+]
+
 extras_require = {
     "test": TEST_REQUIRES,
     "prime": PRIME_REQUIRES,
@@ -72,6 +122,9 @@ extras_require = {
     "mcore": MCORE_REQUIRES,
     "trtllm": TRTLLM_REQUIRES,
     "transferqueue": TRANSFERQUEUE_REQUIRES,
+    "veomni": VEOMNI_REQUIRES,
+    "veomni-vllm": VEOMNI_VLLM_REQUIRES,
+    "veomni-sglang": VEOMNI_SGLANG_REQUIRES,
 }
 
 
