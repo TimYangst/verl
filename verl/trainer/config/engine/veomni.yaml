@@ -48,18 +48,13 @@ enable_reentrant: false
 # veomni_flash_attention_3_with_sp and native-sparse
 attn_implementation: flash_attention_2
 
-# MoE experts forward kernel. GPU default = fused_triton (Triton group-gemm,
-# SM70+); SM90+ may use fused_quack; on Ascend NPU override to fused_npu.
-# `fused` (the legacy name) was removed in VeOmni's kernel-selection refactor —
-# `apply_veomni_fused_moe_patch` raises ValueError if it sees that string now.
-moe_implementation: fused_triton
-
-# Cross-entropy loss kernel, installed via VeOmni's apply_ops_config()
-# singleton path. GPU default = liger_kernel (fused linear+CE, requires
-# liger-kernel); on NPU override to `npu` (chunked loss); `eager` materializes
-# the full [bsz × seq × vocab] logits tensor and OOMs at loss.backward() for
-# large-vocab MoE models.
-cross_entropy_loss_implementation: liger_kernel
+# MoE experts forward kernel. `fused` is a back-compat alias auto-resolved
+# by VeOmni at config-parse time to `fused_quack` on GPU / `fused_npu` on
+# NPU (with a one-time deprecation warning). On hardware that does not
+# satisfy `fused_quack`'s SM90+ requirement (e.g. L20), set this to
+# `fused_triton` explicitly. Other valid values: `eager`, `fused_triton`,
+# `fused_quack`, `fused_npu`.
+moe_implementation: fused
 
 force_use_huggingface: false
 
