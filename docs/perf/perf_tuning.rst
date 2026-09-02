@@ -181,7 +181,7 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
       model:
         use_liger: True  # Enable LigerKernel
 
-2. The default value is ``False``. When enabled, verl applies Liger's fused RMSNorm, SwiGLU, and RoPE kernels to the model. The model-level ``fused_linear_cross_entropy`` patch remains disabled because verl computes log-probabilities through its output-head path. With ``use_fused_kernels`` and the ``torch`` backend, that path uses Liger's fused scaled linear cross entropy from v0.8.2 or newer and falls back to verl's existing chunked ``FusedLinearForPPOFunction`` when Liger is not installed.
+2. The default value is ``False``. When enabled, verl applies Liger's fused RMSNorm, SwiGLU, and RoPE kernels to the model. The model-level ``fused_linear_cross_entropy`` patch remains disabled because verl computes log-probabilities through its output-head path. With ``use_fused_kernels`` and the ``torch`` backend, that path uses Liger's fused scaled linear cross entropy from v0.8.2 or newer and falls back to verl's existing chunked ``FusedLinearForPPOFunction`` when Liger is not installed. It also falls back to the chunked path while ``torch.use_deterministic_algorithms(True)`` is in effect, since the Liger kernel's reduction order differs from ``torch.matmul`` and it bypasses ``torch.library`` overrides of ``aten::mm`` (for example batch-invariant kernels).
 
 3. ``use_liger`` is compatible with ``use_fused_kernels``. The former controls model-internal kernels, while the latter controls the output head and can use Liger's scaled cross entropy independently when ``liger-kernel>=0.8.2`` is installed.
 

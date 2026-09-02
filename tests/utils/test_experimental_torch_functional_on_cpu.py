@@ -97,6 +97,41 @@ def test_fused_linear_for_ppo_dispatches_to_liger(monkeypatch):
     torch.testing.assert_close(entropy, (torch.arange(6, dtype=hidden.dtype) + 10).reshape(2, 3))
 
 
+def test_fused_linear_for_ppo_skips_liger_under_deterministic_algorithms(monkeypatch):
+    calls = []
+
+    class FakeLigerFusedLinearScaledCrossEntropyFunction:
+        @staticmethod
+        def apply(*args):
+            calls.append(args)
+            raise AssertionError("Liger must not be used when deterministic algorithms are enabled")
+
+    monkeypatch.setattr(
+        experimental_F,
+        "_LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY",
+        FakeLigerFusedLinearScaledCrossEntropyFunction,
+    )
+    monkeypatch.setattr(experimental_F, "_FLASH_ATTN_CROSS_ENTROPY_AVAILABLE", False)
+    torch.manual_seed(42)
+    hidden = torch.randn(2, 3, 5)
+    weight = torch.randn(7, 5)
+    labels = torch.randint(7, (2, 3))
+
+    was_deterministic = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    torch.use_deterministic_algorithms(True)
+    try:
+        log_probs, entropy = experimental_F.FusedLinearForPPO()(hidden, weight, labels)
+    finally:
+        torch.use_deterministic_algorithms(was_deterministic, warn_only=warn_only)
+
+    assert calls == []
+    logits = (hidden @ weight.t()).float()
+    expected_log_probs = logits.log_softmax(dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    torch.testing.assert_close(log_probs, expected_log_probs)
+    assert entropy.shape == labels.shape
+
+
 def test_fused_linear_for_ppo_fallback_preserves_chunking(monkeypatch):
     monkeypatch.setattr(experimental_F, "_LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY", None)
     monkeypatch.setattr(experimental_F, "_FLASH_ATTN_CROSS_ENTROPY_AVAILABLE", False)

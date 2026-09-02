@@ -217,6 +217,20 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         )
 
 
+def _use_liger_fused_linear_for_ppo() -> bool:
+    """Whether FusedLinearForPPO should dispatch to Liger's fused scaled cross entropy.
+
+    Liger is faster, but it is a Triton kernel with its own tiling and reduction order, so
+    its log-probs are not bit-identical to the chunked ``torch.matmul`` path and it does not
+    see ``torch.library`` overrides of ``aten::mm`` (e.g. batch-invariant kernels). When the
+    user has asked PyTorch for deterministic algorithms, keep the chunked path so the
+    output head follows the same numerics as the rest of the model.
+    """
+    if _LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY is None:
+        return False
+    return not torch.are_deterministic_algorithms_enabled()
+
+
 class FusedLinearForPPO(torch.nn.Module):
     def __init__(self, chunk_size: int = 512):
         super().__init__()
@@ -231,7 +245,7 @@ class FusedLinearForPPO(torch.nn.Module):
         temperature: float = 1.0,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
         input_ids = input_ids.to(torch.int64)
-        if _LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY is None:
+        if not _use_liger_fused_linear_for_ppo():
             return FusedLinearForPPOFunction.apply(
                 hidden_states,
                 vocab_weights,
